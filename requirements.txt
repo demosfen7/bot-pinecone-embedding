@@ -1,0 +1,4 @@
+pinecone>=7.0,<9
+openai>=1.50,<3
+python-dotenv>=1.0
+python-telegram-bot>=21,<23
