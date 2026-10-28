@@ -1,5 +1,6 @@
 """Подключение к Pinecone, создание индекса и проверка его готовности."""
 import time
+from functools import lru_cache
 
 from pinecone import Pinecone, ServerlessSpec
 
@@ -8,6 +9,13 @@ import config
 
 def get_client() -> Pinecone:
     return Pinecone(api_key=config.pinecone_api_key())
+
+
+@lru_cache(maxsize=1)
+def get_index():
+    """Находим host индекса один раз, дальше переиспользуем подключение."""
+    pc = get_client()
+    return pc.Index(host=pc.describe_index(config.INDEX_NAME).host)
 
 
 def ensure_index(pc: Pinecone, wait_seconds: int = 120):

@@ -1,37 +1,44 @@
-"""Семантический поиск по фактам. Запуск без аргументов прогоняет демо-запросы."""
+"""Семантический поиск. Запуск без аргументов прогоняет демо-запросы по базе фактов."""
 import sys
-from functools import lru_cache
 
 import config
-from embeddings import EmbeddingError, get_embedding
-from pinecone_store import get_client
+from embeddings import ApiError, get_embedding
+from pinecone_store import get_index
 
 
-@lru_cache(maxsize=1)
-def _get_index():
-    """Находим host индекса один раз, дальше переиспользуем подключение."""
-    pc = get_client()
-    return pc.Index(host=pc.describe_index(config.INDEX_NAME).host)
+def semantic_search(
+    query: str,
+    top_k: int | None = None,
+    namespace: str | None = None,
+    metadata_filter: dict | None = None,
+) -> list[dict]:
+    """Возвращает список {id, score, text, topic, metadata} по убыванию релевантности.
 
-
-def semantic_search(query: str, top_k: int | None = None) -> list[dict]:
-    """Возвращает список {id, score, text, topic}, отсортированный по убыванию релевантности."""
+    namespace по умолчанию — база фактов; metadata_filter нужен, например,
+    чтобы искать только в воспоминаниях конкретного пользователя.
+    """
     vector = get_embedding(query)
-    response = _get_index().query(
+    kwargs = {"filter": metadata_filter} if metadata_filter else {}
+    response = get_index().query(
         vector=vector,
         top_k=top_k or config.SEARCH_TOP_K,
         include_metadata=True,
-        namespace=config.NAMESPACE,
+        namespace=namespace or config.NAMESPACE,
+        **kwargs,
     )
-    return [
-        {
-            "id": match.id,
-            "score": match.score,
-            "text": (match.metadata or {}).get("text", ""),
-            "topic": (match.metadata or {}).get("topic", ""),
-        }
-        for match in response.matches
-    ]
+    results = []
+    for match in response.matches:
+        metadata = dict(match.metadata or {})
+        results.append(
+            {
+                "id": match.id,
+                "score": match.score,
+                "text": metadata.get("text", ""),
+                "topic": metadata.get("topic", ""),
+                "metadata": metadata,
+            }
+        )
+    return results
 
 
 # Запросы проверяют смысловые связи, а не совпадение слов; ожидаемые ID — в README.
@@ -51,7 +58,7 @@ def main() -> int:
             print(f"\nЗапрос: {query}")
             for rank, item in enumerate(semantic_search(query), start=1):
                 print(f"  {rank}. [{item['id']}] score={item['score']:.4f} — {item['text']}")
-    except (EmbeddingError, config.ConfigError) as exc:
+    except (ApiError, config.ConfigError) as exc:
         print(f"ОШИБКА: {exc}")
         return 1
     return 0
